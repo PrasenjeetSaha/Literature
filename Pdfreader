@@ -1,0 +1,29 @@
+import fitz  # PyMuPDF
+
+# Function to extract and print all text from a PDF
+def extract_text_from_pdf(file_path):
+    try:
+        # Open the PDF file
+        pdf_document = fitz.open(file_path)
+        all_text = []
+
+        # Loop through all pages and extract text
+        for page_number in range(pdf_document.page_count):
+            page = pdf_document[page_number]
+            text = page.get_text("text")  # Extract all text from the page
+            all_text.append(f"Page {page_number + 1}:\n{text}")
+
+        # Close the PDF document
+        pdf_document.close()
+
+        # Print all extracted text
+        for page_text in all_text:
+            print(page_text)
+        return all_text
+
+    except Exception as e:
+        print(f"Error occurred: {e}")
+
+# Example usage
+pdf_file_path = "path/to/your/sample.pdf"
+extracted_text = extract_text_from_pdf(pdf_file_path)
