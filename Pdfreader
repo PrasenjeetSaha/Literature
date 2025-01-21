@@ -10,8 +10,14 @@ def extract_text_from_pdf(file_path):
         # Loop through all pages and extract text
         for page_number in range(pdf_document.page_count):
             page = pdf_document[page_number]
-            text = page.get_text("text")  # Extract all text from the page
-            all_text.append(f"Page {page_number + 1}:\n{text}")
+
+            # Extract text while ignoring interactive elements
+            try:
+                text = page.get_text("text")  # Extract all text from the page
+                all_text.append(f"Page {page_number + 1}:\n{text}")
+            except Exception as e:
+                print(f"Error extracting text from page {page_number + 1}: {e}")
+                all_text.append(f"Page {page_number + 1}:\n[Error extracting text]")
 
         # Close the PDF document
         pdf_document.close()
