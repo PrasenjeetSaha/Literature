@@ -33,3 +33,76 @@ def extract_text_from_pdf(file_path):
 # Example usage
 pdf_file_path = "path/to/your/sample.pdf"
 extracted_text = extract_text_from_pdf(pdf_file_path)
+
+
+
+
+
+
+
+
+
+
+import fitz  # PyMuPDF
+import pandas as pd
+import re
+
+def extract_fields_from_text(text):
+    """
+    Extract fields and their values from the provided text, capturing all occurrences.
+    """
+    fields = {}
+
+    # Regex patterns for extracting fields
+    patterns = {
+        "Year": r"Schedule\s*K-1\s*(\d{4})",  # Captures the year "2023"
+        "Business Income": r"Business Income\s*-\$([\d,\.]+)",  # Captures Business Income
+        "Net Profit": r"Net Profit\s*\$([\d,\.]+)",  # Captures Net Profit
+        "Dividends": r"Dividends\s*([\d,\.]+)",  # Captures Dividends
+        "Normal Dividends": r"Normal Dividends\s*([\d,\.]+)",  # Captures Normal Dividends
+        "Corporation Name and Address": r"Corporation Name,\s*Addres\s*([\w\s,]+)",  # Captures Corporation Name and Address
+        "RRS Centre": r"RRS Centre\s*([\w-]+)",  # Captures RRS Centre (e.g., "E-File" or "F-File")
+        "Shares Beginning": r"Beginning\s*\.\.\.\.\.\s*([\d\.]+)",  # Captures Shares at Beginning
+        "Shares End": r"End\s*\.\.\.\.\.\s*([\d\.]+)",  # Captures Shares at End
+        "Shareholder ID": r"Shareholder\s*ID\s*([\d\-]+)",  # Captures Shareholder ID
+        "Shareholder Corporation Name and Address": r"Shareholder Corporation Name,\s*Address\s*([\w\s,]+)"  # Shareholder Corporation Name and Address
+    }
+
+    for field, pattern in patterns.items():
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            # Store all matches as a comma-separated string
+            fields[field] = ", ".join(match.strip() for match in matches)
+
+    return fields
+
+def process_pdf_and_save_to_excel(pdf_path, output_excel_path):
+    """
+    Extract fields and their values from a PDF and save them to an Excel file.
+    """
+    # Open the PDF
+    pdf_document = fitz.open(pdf_path)
+    all_fields = []
+
+    # Loop through all pages
+    for page_number in range(pdf_document.page_count):
+        page = pdf_document[page_number]
+        text = page.get_text("text")  # Extract text
+        if text.strip():  # If there is text on the page
+            fields = extract_fields_from_text(text)
+            fields["Page Number"] = page_number + 1  # Add page number
+            all_fields.append(fields)
+
+    pdf_document.close()
+
+    # Convert to a DataFrame
+    df = pd.DataFrame(all_fields)
+
+    # Save to Excel
+    df.to_excel(output_excel_path, index=False)
+    print(f"Data saved to Excel file: {output_excel_path}")
+
+# Example usage
+pdf_file_path = "/mnt/data/3.pdf"
+output_excel_path = "/mnt/data/output_3.xlsx"
+process_pdf_and_save_to_excel(pdf_file_path, output_excel_path)
