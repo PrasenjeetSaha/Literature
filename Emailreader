@@ -1,0 +1,96 @@
+import os
+import win32com.client
+import pandas as pd
+from bs4 import BeautifulSoup
+from striprtf.striprtf import rtf_to_text
+
+def convert_msg_to_html(msg):
+    try:
+        email_body = msg.HTMLBody
+        if email_body and isinstance(email_body, str):
+            return email_body
+    except Exception:
+        pass
+
+    try:
+        rtf_body = msg.Body
+        if rtf_body:
+            plain_text = rtf_to_text(rtf_body)
+            return f"<html><body><pre>{plain_text}</pre></body></html>"
+    except Exception:
+        pass
+
+    try:
+        plain_text = msg.Body
+        if plain_text and isinstance(plain_text, str):
+            return f"<html><body><pre>{plain_text}</pre></body></html>"
+    except Exception:
+        pass
+
+    raise ValueError("Unable to convert email to HTML")
+
+def extract_table_from_email(email_body):
+    if not isinstance(email_body, str):
+        raise ValueError("email_body must be a string")
+
+    if "<table" in email_body.lower():
+        soup = BeautifulSoup(email_body, "html.parser")
+        tables = soup.find_all("table")
+        all_data = []
+        for table in tables:
+            rows = table.find_all("tr")
+            table_data = []
+            for row in rows:
+                cells = row.find_all(["td", "th"])
+                row_data = [cell.get_text(strip=True) for cell in cells]
+                if row_data:
+                    table_data.append(row_data)
+            if table_data:
+                all_data.append(table_data)
+        return all_data
+    else:
+        all_data = []
+        lines = email_body.splitlines()
+        table_data = []
+        for line in lines:
+            row = [col.strip() for col in line.split("\t") if col.strip()]
+            if not row:
+                row = [col.strip() for col in line.split("  ") if col.strip()]
+            if row:
+                table_data.append(row)
+        if table_data:
+            all_data.append(table_data)
+        return all_data
+
+def process_email_folder(folder_path):
+    outlook = win32com.client.Dispatch("Outlook.Application")
+    namespace = outlook.GetNamespace("MAPI")
+
+    data = []
+
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".msg"):
+            msg = namespace.OpenSharedItem(os.path.join(folder_path, filename))
+            email_body = convert_msg_to_html(msg)
+
+            subject = msg.Subject
+            sender = msg.SenderName
+            received_time = msg.ReceivedTime
+
+            tables = extract_table_from_email(email_body)
+
+            for table in tables:
+                for row in table:
+                    if len(row) >= 2:
+                        key = row[0].strip().strip(":").strip(".")
+                        value = row[1].strip()
+                        data.append([subject, sender, received_time, key, value])
+
+    df = pd.DataFrame(data, columns=["Subject", "Sender", "Time", "Key", "Value"])
+    
+    df_pivot = df.pivot(index="Subject", columns="Key", values="Value")
+
+    df.to_csv("emails_data.csv", index=False)
+    df_pivot.to_csv("emails_pivot.csv")
+
+process_email_folder("D:/emails")
