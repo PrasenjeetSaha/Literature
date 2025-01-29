@@ -1,8 +1,10 @@
 import os
+import shutil
 import win32com.client
 import pandas as pd
 from bs4 import BeautifulSoup
 from striprtf.striprtf import rtf_to_text
+from pywintypes import com_error
 
 def convert_msg_to_html(msg):
     try:
@@ -62,31 +64,45 @@ def extract_table_from_email(email_body):
             all_data.append(table_data)
         return all_data
 
+def count_email_chain(msg):
+    try:
+        return msg.ConversationIndex.count("=")
+    except Exception:
+        return 1
+
 def process_email_folder(folder_path):
     outlook = win32com.client.Dispatch("Outlook.Application")
     namespace = outlook.GetNamespace("MAPI")
 
     data = []
+    manual_check_folder = os.path.join(folder_path, "emails_manual_check")
+    os.makedirs(manual_check_folder, exist_ok=True)
 
     for filename in os.listdir(folder_path):
         if filename.endswith(".msg"):
-            msg = namespace.OpenSharedItem(os.path.join(folder_path, filename))
-            email_body = convert_msg_to_html(msg)
+            file_path = os.path.join(folder_path, filename)
+            try:
+                msg = namespace.OpenSharedItem(file_path)
+                email_body = convert_msg_to_html(msg)
 
-            subject = msg.Subject
-            sender = msg.SenderName
-            received_time = msg.ReceivedTime
+                subject = msg.Subject
+                sender = msg.SenderName
+                received_time = msg.ReceivedTime
+                email_chain_count = count_email_chain(msg)
 
-            tables = extract_table_from_email(email_body)
+                tables = extract_table_from_email(email_body)
 
-            for table in tables:
-                for row in table:
-                    if len(row) >= 2:
-                        key = row[0].strip().strip(":").strip(".")
-                        value = row[1].strip()
-                        data.append([subject, sender, received_time, key, value])
+                for table in tables:
+                    for row in table:
+                        if len(row) >= 2:
+                            key = row[0].strip().strip(":").strip(".")
+                            value = row[1].strip()
+                            data.append([subject, sender, received_time, email_chain_count, key, value])
+            except com_error:
+                shutil.move(file_path, os.path.join(manual_check_folder, filename))
+                continue
 
-    df = pd.DataFrame(data, columns=["Subject", "Sender", "Time", "Key", "Value"])
+    df = pd.DataFrame(data, columns=["Subject", "Sender", "Time", "Email_Chain_Count", "Key", "Value"])
     
     df_pivot = df.pivot(index="Subject", columns="Key", values="Value")
 
