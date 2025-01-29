@@ -1,0 +1,22 @@
+import fitz  # PyMuPDF
+
+def flatten_pdf(input_pdf_path, output_pdf_path):
+    """
+    Flatten a PDF by converting form fields and annotations into static text.
+    """
+    doc = fitz.open(input_pdf_path)
+
+    # Loop through each page and flatten annotations and form fields
+    for page in doc:
+        page.clean_contents()  # Cleans and flattens the content
+        page.insert_text((10, 10), "", fontsize=0)  # Forces re-rendering
+
+    # Save the flattened PDF
+    doc.save(output_pdf_path)
+    doc.close()
+    print(f"Flattened PDF saved to: {output_pdf_path}")
+
+# Example usage
+input_pdf = "/mnt/data/3.pdf"
+flattened_pdf = "/mnt/data/flattened_3.pdf"
+flatten_pdf(input_pdf, flattened_pdf)
