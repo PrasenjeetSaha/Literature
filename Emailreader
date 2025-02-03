@@ -110,3 +110,28 @@ def process_email_folder(folder_path):
     df_pivot.to_csv("emails_pivot.csv")
 
 process_email_folder("D:/emails")
+
+
+
+
+
+
+
+import re
+
+def count_email_chain(msg):
+    try:
+        if hasattr(msg, "HTMLBody") and msg.HTMLBody:
+            email_body = msg.HTMLBody
+        elif hasattr(msg, "Body") and msg.Body:
+            email_body = msg.Body
+        else:
+            return 1  # If no body, assume single email
+
+        # Count occurrences of email headers (From: / Sent: etc.)
+        chain_count = len(re.findall(r"(?i)(From:|Sent:)", email_body))
+
+        return max(chain_count, 1)  # Ensure at least 1
+    except Exception as e:
+        print(f"Error counting email chain: {e}")
+        return 1
