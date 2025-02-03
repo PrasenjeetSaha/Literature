@@ -135,3 +135,40 @@ def count_email_chain(msg):
     except Exception as e:
         print(f"Error counting email chain: {e}")
         return 1
+
+
+
+
+
+
+
+
+
+
+
+
+from bs4 import BeautifulSoup
+import re
+
+def count_email_chain(msg):
+    try:
+        if hasattr(msg, "HTMLBody") and msg.HTMLBody:
+            email_body = msg.HTMLBody
+        elif hasattr(msg, "Body") and msg.Body:
+            email_body = msg.Body
+        else:
+            return 1  # If no body, assume single email
+
+        # Parse HTML content with BeautifulSoup
+        soup = BeautifulSoup(email_body, "html.parser")
+
+        # Extract all the email parts (e.g., "From:", "Sent:" headers) from the HTML content
+        email_parts = soup.find_all(text=re.compile(r"(From:|Sent:)", re.IGNORECASE))
+
+        # Count the number of "From:" or "Sent:" headers found in the email chain
+        chain_count = len(email_parts)
+
+        return max(chain_count, 1)  # Ensure at least 1 email in the chain
+    except Exception as e:
+        print(f"Error counting email chain: {e}")
+        return 1
