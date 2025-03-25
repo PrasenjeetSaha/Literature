@@ -1,0 +1,109 @@
+WITH Date_Range AS (
+    SELECT 
+        CAST('2023-01-01' AS DATE) AS Week_Start,  -- Replace with the start date as needed
+        DATEADD(DAY, 6, CAST('2023-01-01' AS DATE)) AS Week_End
+    UNION ALL
+    SELECT 
+        DATEADD(DAY, 7, Week_Start),
+        DATEADD(DAY, 13, Week_Start)
+    FROM Date_Range
+    WHERE DATEADD(DAY, 7, Week_Start) <= GETDATE()
+),
+
+Filtered_Employees AS (
+    SELECT *
+    FROM Employees
+    WHERE Level_4_Manager = 'ABC'
+),
+
+Active_Employees AS (
+    SELECT 
+        DR.Week_Start,
+        COUNT(DISTINCT FE.Employee_ID) AS Active_Count
+    FROM Date_Range DR
+    LEFT JOIN Filtered_Employees FE
+        ON FE.Row_Effective_Date <= DR.Week_End 
+        AND FE.Row_Expiry_Date >= DR.Week_Start
+    GROUP BY DR.Week_Start
+),
+
+Joined_Employees AS (
+    SELECT 
+        DR.Week_Start,
+        COUNT(DISTINCT FE.Employee_ID) AS Joined_Count
+    FROM Date_Range DR
+    LEFT JOIN Filtered_Employees FE
+        ON FE.Row_Effective_Date BETWEEN DR.Week_Start AND DR.Week_End
+    GROUP BY DR.Week_Start
+),
+
+Left_Employees AS (
+    SELECT 
+        DR.Week_Start,
+        COUNT(DISTINCT FE.Employee_ID) AS Left_Count,
+        SUM(CASE 
+            WHEN FE.Employee_Status = 'T' THEN 1 ELSE 0 
+        END) AS Company_Left,
+        SUM(CASE 
+            WHEN LEAD(FE.AU) OVER (PARTITION BY FE.Employee_ID ORDER BY FE.Row_Effective_Date) <> FE.AU THEN 1 ELSE 0 
+        END) AS Team_Left,
+        SUM(CASE 
+            WHEN LEAD(FE.Manager) OVER (PARTITION BY FE.Employee_ID ORDER BY FE.Row_Effective_Date) <> FE.Manager THEN 1 ELSE 0 
+        END) AS Manager_Change
+    FROM Date_Range DR
+    LEFT JOIN Filtered_Employees FE
+        ON FE.Row_Expiry_Date BETWEEN DR.Week_Start AND DR.Week_End
+    GROUP BY DR.Week_Start
+),
+
+Employee_Details AS (
+    SELECT 
+        FE.Employee_ID,
+        FE.Name,
+        FE.AU,
+        FE.Manager,
+        FE.Employee_Status,
+        FE.Row_Effective_Date,
+        FE.Row_Expiry_Date,
+        CASE 
+            WHEN FE.Row_Effective_Date BETWEEN DR.Week_Start AND DR.Week_End THEN 'Joined'
+            WHEN FE.Row_Expiry_Date BETWEEN DR.Week_Start AND DR.Week_End THEN 
+                CASE 
+                    WHEN FE.Employee_Status = 'T' THEN 'Left Company'
+                    WHEN LEAD(FE.AU) OVER (PARTITION BY FE.Employee_ID ORDER BY FE.Row_Effective_Date) <> FE.AU THEN 'Left Team'
+                    WHEN LEAD(FE.Manager) OVER (PARTITION BY FE.Employee_ID ORDER BY FE.Row_Effective_Date) <> FE.Manager THEN 'Manager Changed'
+                    ELSE 'Other'
+                END
+            ELSE 'Active'
+        END AS Employee_Event,
+        DR.Week_Start
+    FROM Filtered_Employees FE
+    CROSS JOIN Date_Range DR
+    WHERE (FE.Row_Effective_Date BETWEEN DR.Week_Start AND DR.Week_End
+           OR FE.Row_Expiry_Date BETWEEN DR.Week_Start AND DR.Week_End)
+)
+
+SELECT 
+    AR.Week_Start,
+    AR.Active_Count,
+    JR.Joined_Count,
+    LR.Left_Count,
+    LR.Company_Left,
+    LR.Team_Left,
+    LR.Manager_Change
+FROM Active_Employees AR
+LEFT JOIN Joined_Employees JR ON AR.Week_Start = JR.Week_Start
+LEFT JOIN Left_Employees LR ON AR.Week_Start = LR.Week_Start
+
+UNION ALL
+
+SELECT 
+    ED.Week_Start,
+    NULL AS Active_Count,
+    NULL AS Joined_Count,
+    NULL AS Left_Count,
+    NULL AS Company_Left,
+    NULL AS Team_Left,
+    NULL AS Manager_Change
+FROM Employee_Details ED
+ORDER BY Week_Start;
