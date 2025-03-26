@@ -1,6 +1,6 @@
 WITH Date_Range AS (
     SELECT 
-        CAST('2023-01-01' AS DATE) AS Week_Start,  -- Replace with the required start date
+        CAST('2023-01-01' AS DATE) AS Week_Start,  -- Adjust start date as needed
         DATEADD(DAY, 6, CAST('2023-01-01' AS DATE)) AS Week_End
     UNION ALL
     SELECT 
@@ -37,39 +37,58 @@ Joined_Employees AS (
     GROUP BY DR.Week_Start
 ),
 
-Left_Employees AS (
+Left_Company AS (
     SELECT 
         DR.Week_Start,
-        COUNT(DISTINCT FE.EMPLID) AS Left_Count,
-        SUM(CASE 
-            WHEN FE.EMPL_Status = 'T' AND FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End THEN 1 ELSE 0 
-        END) AS Company_Left,
-        SUM(CASE 
-            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End 
-                 AND EXISTS (
-                    SELECT 1 
-                    FROM Filtered_Employees FE_Next
-                    WHERE FE_Next.EMPLID = FE.EMPLID
-                    AND FE_Next.ROW_EFF_TS = FE.ROW_EXP_TS + 1
-                    AND FE_Next.AU <> FE.AU
-                 )
-            THEN 1 ELSE 0 
-        END) AS Team_Left,
-        SUM(CASE 
-            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End 
-                 AND EXISTS (
-                    SELECT 1 
-                    FROM Filtered_Employees FE_Next
-                    WHERE FE_Next.EMPLID = FE.EMPLID
-                    AND FE_Next.ROW_EFF_TS = FE.ROW_EXP_TS + 1
-                    AND FE_Next.RPTS_TO_MGR_NAME <> FE.RPTS_TO_MGR_NAME
-                 )
-            THEN 1 ELSE 0 
-        END) AS Manager_Change
+        COUNT(DISTINCT FE.EMPLID) AS Company_Left
     FROM Date_Range DR
     LEFT JOIN Filtered_Employees FE
         ON FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End
+        AND FE.EMPL_Status = 'T'
     GROUP BY DR.Week_Start
+),
+
+Left_Team AS (
+    SELECT 
+        DR.Week_Start,
+        COUNT(DISTINCT FE.EMPLID) AS Team_Left
+    FROM Date_Range DR
+    LEFT JOIN Filtered_Employees FE
+        ON FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End
+    LEFT JOIN Filtered_Employees FE_Next
+        ON FE.EMPLID = FE_Next.EMPLID
+        AND FE_Next.ROW_EFF_TS = DATEADD(DAY, 1, FE.ROW_EXP_TS)
+        AND FE.AU <> FE_Next.AU
+    WHERE FE_Next.EMPLID IS NOT NULL
+    GROUP BY DR.Week_Start
+),
+
+Manager_Change AS (
+    SELECT 
+        DR.Week_Start,
+        COUNT(DISTINCT FE.EMPLID) AS Manager_Change
+    FROM Date_Range DR
+    LEFT JOIN Filtered_Employees FE
+        ON FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End
+    LEFT JOIN Filtered_Employees FE_Next
+        ON FE.EMPLID = FE_Next.EMPLID
+        AND FE_Next.ROW_EFF_TS = DATEADD(DAY, 1, FE.ROW_EXP_TS)
+        AND FE.RPTS_TO_MGR_NAME <> FE_Next.RPTS_TO_MGR_NAME
+    WHERE FE_Next.EMPLID IS NOT NULL
+    GROUP BY DR.Week_Start
+),
+
+Left_Employees AS (
+    SELECT 
+        DR.Week_Start,
+        COALESCE(LC.Company_Left, 0) AS Company_Left,
+        COALESCE(LT.Team_Left, 0) AS Team_Left,
+        COALESCE(MC.Manager_Change, 0) AS Manager_Change,
+        COALESCE(LC.Company_Left, 0) + COALESCE(LT.Team_Left, 0) + COALESCE(MC.Manager_Change, 0) AS Left_Count
+    FROM Date_Range DR
+    LEFT JOIN Left_Company LC ON DR.Week_Start = LC.Week_Start
+    LEFT JOIN Left_Team LT ON DR.Week_Start = LT.Week_Start
+    LEFT JOIN Manager_Change MC ON DR.Week_Start = MC.Week_Start
 ),
 
 Employee_Details AS (
@@ -83,25 +102,23 @@ Employee_Details AS (
         FE.ROW_EXP_TS,
         CASE 
             WHEN FE.ROW_EFF_TS BETWEEN DR.Week_Start AND DR.Week_End THEN 'Joined'
-            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End THEN 
-                CASE 
-                    WHEN FE.EMPL_Status = 'T' THEN 'Left Company'
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM Filtered_Employees FE_Next
-                        WHERE FE_Next.EMPLID = FE.EMPLID
-                        AND FE_Next.ROW_EFF_TS = FE.ROW_EXP_TS + 1
-                        AND FE_Next.AU <> FE.AU
-                    ) THEN 'Left Team'
-                    WHEN EXISTS (
-                        SELECT 1 
-                        FROM Filtered_Employees FE_Next
-                        WHERE FE_Next.EMPLID = FE.EMPLID
-                        AND FE_Next.ROW_EFF_TS = FE.ROW_EXP_TS + 1
-                        AND FE_Next.RPTS_TO_MGR_NAME <> FE.RPTS_TO_MGR_NAME
-                    ) THEN 'Manager Changed'
-                    ELSE 'Other'
-                END
+            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End AND FE.EMPL_Status = 'T' THEN 'Left Company'
+            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End 
+                 AND EXISTS (
+                     SELECT 1 
+                     FROM Filtered_Employees FE_Next
+                     WHERE FE_Next.EMPLID = FE.EMPLID
+                     AND FE_Next.ROW_EFF_TS = DATEADD(DAY, 1, FE.ROW_EXP_TS)
+                     AND FE.AU <> FE_Next.AU
+                 ) THEN 'Left Team'
+            WHEN FE.ROW_EXP_TS BETWEEN DR.Week_Start AND DR.Week_End 
+                 AND EXISTS (
+                     SELECT 1 
+                     FROM Filtered_Employees FE_Next
+                     WHERE FE_Next.EMPLID = FE.EMPLID
+                     AND FE_Next.ROW_EFF_TS = DATEADD(DAY, 1, FE.ROW_EXP_TS)
+                     AND FE.RPTS_TO_MGR_NAME <> FE_Next.RPTS_TO_MGR_NAME
+                 ) THEN 'Manager Changed'
             ELSE 'Active'
         END AS Employee_Event,
         DR.Week_Start
