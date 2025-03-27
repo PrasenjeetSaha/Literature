@@ -1,0 +1,96 @@
+WITH WeeklyData AS (
+    -- Week 0 Query
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, 
+        'Week -0' AS WeekNum, Location
+    FROM HR_data
+    WHERE row_eff_date <= @Week0_End AND row_exp_date > @Week0_End
+
+    UNION
+
+    -- Week -1 Query
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, 
+        'Week -1' AS WeekNum, Location
+    FROM HR_data
+    WHERE row_eff_date <= @Week1_End AND row_exp_date > @Week1_End
+
+    UNION
+
+    -- Week -2 Query
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, 
+        'Week -2' AS WeekNum, Location
+    FROM HR_data
+    WHERE row_eff_date <= @Week2_End AND row_exp_date > @Week2_End
+
+    UNION
+
+    -- Week -3 Query
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, 
+        'Week -3' AS WeekNum, Location
+    FROM HR_data
+    WHERE row_eff_date <= @Week3_End AND row_exp_date > @Week3_End
+
+    UNION
+
+    -- Week -4 Query
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, 
+        'Week -4' AS WeekNum, Location
+    FROM HR_data
+    WHERE row_eff_date <= @Week4_End AND row_exp_date > @Week4_End
+),
+RankedData AS (
+    -- Assign rank to get max row_exp_date for each Emplid, WeekNum
+    SELECT 
+        Emplid, AU, empl_status, row_eff_date, row_exp_date, WeekNum, Location,
+        RANK() OVER (PARTITION BY Emplid, WeekNum ORDER BY row_exp_date DESC) AS rnk
+    FROM WeeklyData
+),
+FilteredData AS (
+    -- Select only the row with max row_exp_date for each Emplid, WeekNum
+    SELECT * FROM RankedData WHERE rnk = 1
+),
+Flags AS (
+    -- Determine New Joiner, Moved Out, Manager Changed, and Location Changed
+    SELECT 
+        f1.*, 
+        -- Check if this is the first appearance of the Emplid
+        CASE 
+            WHEN f1.WeekNum = (SELECT MIN(WeekNum) FROM FilteredData f2 WHERE f1.Emplid = f2.Emplid) 
+            THEN 'New Joiner' ELSE NULL 
+        END AS Flag_New_Joiner,
+
+        -- Check if this is the last appearance (excluding Week 0)
+        CASE 
+            WHEN f1.WeekNum != 'Week -0' AND f1.WeekNum = (SELECT MAX(WeekNum) FROM FilteredData f3 WHERE f1.Emplid = f3.Emplid) 
+            THEN 'Moved Out' ELSE NULL 
+        END AS Flag_Moved_Out,
+
+        -- Check if AU (Manager) has changed week over week
+        CASE 
+            WHEN EXISTS (
+                SELECT 1 FROM FilteredData f_prev 
+                WHERE f_prev.Emplid = f1.Emplid 
+                AND f_prev.WeekNum = 'Week -' + CAST(CAST(SUBSTRING(f1.WeekNum, 7, 1) AS INT) + 1 AS VARCHAR)
+                AND f_prev.AU <> f1.AU
+            ) THEN 'Manager Changed' 
+            ELSE NULL 
+        END AS Flag_Manager_Changed,
+
+        -- Check if Location has changed week over week
+        CASE 
+            WHEN EXISTS (
+                SELECT 1 FROM FilteredData f_prev 
+                WHERE f_prev.Emplid = f1.Emplid 
+                AND f_prev.WeekNum = 'Week -' + CAST(CAST(SUBSTRING(f1.WeekNum, 7, 1) AS INT) + 1 AS VARCHAR)
+                AND f_prev.Location <> f1.Location
+            ) THEN 'Location Changed' 
+            ELSE NULL 
+        END AS Flag_Location_Changed
+    FROM FilteredData f1
+)
+SELECT * FROM Flags
+ORDER BY WeekNum, Emplid;
